@@ -118,6 +118,10 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 			if err != nil {
 				logging.Printf("Unable to decode data packet : %s", dataPacket)
 			}
+			if len(dataPacketRaw)<24 {
+				logging.Printf("Size not enough for data packet : %s", dataPacket)
+				break
+			}
 
 			// Attempt to decrypt and authenticate the packet.
 			output, valid := crypto.Open(dataPacketRaw[24:], dataPacketRaw[:24], dt.EncryptionKey)
