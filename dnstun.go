@@ -17,6 +17,7 @@ import (
 	"time"
 	"net"
 	"io"
+	"log"
 
 	"errors"
 
@@ -412,10 +413,10 @@ func ListenForClients(agentstr string, listen string, port int, session *yamux.S
 	portinc := port
 	for {
 		address = fmt.Sprintf("%s:%d", listen, portinc)
-		logging.Printf("[%s] Waiting for clients on %s", agentstr, address)
+		log.Printf("[%s] Waiting for clients on %s", agentstr, address)
 		ln, err = net.Listen("tcp", address)
 		if err != nil {
-			logging.Printf("[%s] Error listening on %s: %v", agentstr, address, err)
+			log.Printf("[%s] Error listening on %s: %v", agentstr, address, err)
 			portinc = portinc + 1
 		} else {
 			break
