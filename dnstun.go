@@ -2,27 +2,27 @@ package dnstun
 
 import (
 	"bytes"
+	"encoding/hex"
+	"fmt"
+	"github.com/golang/protobuf/proto"
 	"github.com/kost/chashell/lib/crypto"
 	"github.com/kost/chashell/lib/logging"
 	"github.com/kost/chashell/lib/protocol"
 	"github.com/kost/chashell/lib/transport"
-	"encoding/hex"
-	"math/rand"
-	"fmt"
-	"github.com/golang/protobuf/proto"
 	"github.com/miekg/dns"
+	"io"
+	"log"
+	"math/rand"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"net"
-	"io"
-	"log"
 
 	"errors"
 
-	"github.com/hashicorp/yamux"
 	"github.com/acomagu/bufpipe"
+	"github.com/hashicorp/yamux"
 )
 
 const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -43,18 +43,17 @@ type MemBuffer struct {
 	w *bufpipe.PipeWriter
 }
 
-
 type DnsTunnel struct {
 	TargetDomain  string
 	EncryptionKey string
-	PortNum int
-	PortInc int
+	PortNum       int
+	PortInc       int
 	ClientsListen string
-	Dns *dns.Server
-	Transport *transport.DnsStream
-	Sleeptime time.Duration
-	Yamuxconfig *yamux.Config
-	ReadBuffer map[string]MemBuffer
+	Dns           *dns.Server
+	Transport     *transport.DnsStream
+	Sleeptime     time.Duration
+	Yamuxconfig   *yamux.Config
+	ReadBuffer    map[string]MemBuffer
 	// Store the packets that will be sent when the client send a polling request.
 	packetQueue map[string][]string
 	// Store the sessions information.
@@ -73,8 +72,8 @@ type clientInfo struct {
 
 type Sessioninfo struct {
 	opened bool
-	id string
-	dt *DnsTunnel
+	id     string
+	dt     *DnsTunnel
 }
 
 type connData struct {
@@ -85,7 +84,7 @@ type connData struct {
 
 type pollTemporaryData struct {
 	lastseen int64
-	data string
+	data     string
 }
 
 func (ci *clientInfo) GetChunk(chunkID int32) connData {
@@ -94,11 +93,11 @@ func (ci *clientInfo) GetChunk(chunkID int32) connData {
 }
 
 func YamuxConfig() *yamux.Config {
-	yconfig:=yamux.DefaultConfig()
-	yconfig.KeepAliveInterval=300 * time.Second
-	yconfig.ConnectionWriteTimeout=120 * time.Second
-	yconfig.StreamOpenTimeout=175 * time.Second
-	yconfig.EnableKeepAlive=false
+	yconfig := yamux.DefaultConfig()
+	yconfig.KeepAliveInterval = 300 * time.Second
+	yconfig.ConnectionWriteTimeout = 120 * time.Second
+	yconfig.StreamOpenTimeout = 175 * time.Second
+	yconfig.EnableKeepAlive = false
 	return yconfig
 }
 
@@ -118,7 +117,7 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 			if err != nil {
 				logging.Printf("Unable to decode data packet : %s", dataPacket)
 			}
-			if len(dataPacketRaw)<24 {
+			if len(dataPacketRaw) < 24 {
 				logging.Printf("Size not enough for data packet : %s", dataPacket)
 				break
 			}
@@ -127,7 +126,7 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 			output, valid := crypto.Open(dataPacketRaw[24:], dataPacketRaw[:24], dt.EncryptionKey)
 
 			if !valid {
-				logging.Printf("Received invalid/corrupted packet. Dropping. %s\n",dataPacket)
+				logging.Printf("Received invalid/corrupted packet. Dropping. %s\n", dataPacket)
 				break
 			}
 
@@ -162,7 +161,7 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 				tmpbuf.r, tmpbuf.w = bufpipe.New(nil)
 				dt.ReadBuffer[clientGUID] = tmpbuf
 				session = dt.sessionsMap[clientGUID]
-				newsession=Sessioninfo{opened: true, id: clientGUID, dt: dt}
+				newsession = Sessioninfo{opened: true, id: clientGUID, dt: dt}
 			}
 
 			// Avoid race conditions.
@@ -207,7 +206,6 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 				// We need to allocate a new session in order to store incoming data.
 				session.conn[u.Chunkstart.Chunkid] = connData{chunkSize: u.Chunkstart.Chunksize, packets: make(map[int32]string)}
 
-
 			case *protocol.Message_Chunkdata:
 				// Get the storage associated to the chunkId.
 				connection := session.GetChunk(u.Chunkdata.Chunkid)
@@ -232,7 +230,6 @@ func (dt *DnsTunnel) ParseQuery(m *dns.Msg) Sessioninfo {
 					dt.ReadBuffer[clientGUID].w.Write(chunkBuffer.Bytes())
 				}
 
-
 			default:
 				logging.Printf("Unknown message type received : %v\n", u)
 			}
@@ -255,12 +252,12 @@ func (dt *DnsTunnel) HandleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	switch r.Opcode {
 	case dns.OpcodeQuery:
-		ns:=dt.ParseQuery(m)
-		if ns!= (Sessioninfo{}) {
+		ns := dt.ParseQuery(m)
+		if ns != (Sessioninfo{}) {
 			logging.Printf("New session: %s", ns.id)
 			session, erry := yamux.Client(&ns, dt.Yamuxconfig)
 			if erry != nil {
-				logging.Printf("[%s] Error creating client in yamux for %s: %v", ns.id,  erry)
+				logging.Printf("[%s] Error creating client in yamux for %s: %v", ns.id, erry)
 			}
 			go ListenForClients(ns.id, dt.ClientsListen, dt.PortNum+dt.PortInc, session)
 			dt.PortInc = dt.PortInc + 1
@@ -270,19 +267,19 @@ func (dt *DnsTunnel) HandleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (si *Sessioninfo) Read(data []byte) (int, error) {
-	if ! si.opened {
+	if !si.opened {
 		return 0, errors.New("read after close")
 	}
 	_, valid := si.dt.ReadBuffer[si.id]
 	if !valid {
 		return 0, errors.New("read of nonexistant or timed out connection")
 	}
-	nread, er:=si.dt.ReadBuffer[si.id].r.Read(data)
+	nread, er := si.dt.ReadBuffer[si.id].r.Read(data)
 	return nread, er
 }
 
 func (si *Sessioninfo) Write(data []byte) (int, error) {
-	if ! si.opened {
+	if !si.opened {
 		return 0, errors.New("write after close")
 	}
 	initPacket, dataPackets := transport.Encode(data, false, si.dt.EncryptionKey, si.dt.TargetDomain, nil)
@@ -298,8 +295,8 @@ func (si *Sessioninfo) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func (si *Sessioninfo) Close() (error) {
-	si.opened=false
+func (si *Sessioninfo) Close() error {
+	si.opened = false
 	return nil
 }
 
@@ -326,7 +323,7 @@ func (dt *DnsTunnel) PollCacheCleaner() {
 		time.Sleep(1 * time.Second)
 		now := time.Now()
 		for pollData, cache := range dt.pollCache {
-			if cache.lastseen + 10 < now.Unix() {
+			if cache.lastseen+10 < now.Unix() {
 				logging.Printf("Dropping cached poll query : %v\n", pollData)
 				// Delete from poll cache list.
 				delete(dt.pollCache, pollData)
@@ -340,13 +337,13 @@ func (dt *DnsTunnel) SetDnsConfig(DnsDomain string, enckey string) {
 	dt.EncryptionKey = enckey
 }
 
-func GenerateKey() (string) {
-	rb:=RandBytes(32)
-	rbhex:=hex.EncodeToString(rb)
+func GenerateKey() string {
+	rb := RandBytes(32)
+	rbhex := hex.EncodeToString(rb)
 	return rbhex
 }
 
-func (dt *DnsTunnel) SetDnsDelay (dnsdelay string) error {
+func (dt *DnsTunnel) SetDnsDelay(dnsdelay string) error {
 	if dnsdelay == "" {
 		return errors.New("empty duration")
 	}
@@ -354,7 +351,7 @@ func (dt *DnsTunnel) SetDnsDelay (dnsdelay string) error {
 	if err != nil {
 		return err
 	}
-	dt.Sleeptime=dur
+	dt.Sleeptime = dur
 	// if transport is initialized set it directly
 	if dt.Transport != nil {
 		dt.Transport.SetSleeptime(dur)
@@ -362,7 +359,7 @@ func (dt *DnsTunnel) SetDnsDelay (dnsdelay string) error {
 	return nil
 }
 
-func (dt *DnsTunnel) DnsServer (dnslisten string, clients string) (error) {
+func (dt *DnsTunnel) DnsServer(dnslisten string, clients string) error {
 	var listenstr = strings.Split(clients, ":")
 	portnum, errc := strconv.Atoi(listenstr[1])
 	if errc != nil {
@@ -379,7 +376,7 @@ func (dt *DnsTunnel) DnsServer (dnslisten string, clients string) (error) {
 	return nil
 }
 
-func (dt *DnsTunnel) DnsServerStart () error {
+func (dt *DnsTunnel) DnsServerStart() error {
 	// start helping routines for timeouts
 	go dt.DnsTimeoutCheck()
 	go dt.PollCacheCleaner()
@@ -390,7 +387,7 @@ func (dt *DnsTunnel) DnsServerStart () error {
 	return err
 }
 
-func (dt *DnsTunnel) DnsClient () (*yamux.Session, error) {
+func (dt *DnsTunnel) DnsClient() (*yamux.Session, error) {
 	dt.Transport = transport.DNSStream(dt.TargetDomain, dt.EncryptionKey)
 	dt.Transport.SetSleeptime(dt.Sleeptime)
 	session, err := yamux.Server(dt.Transport, dt.Yamuxconfig)
@@ -398,14 +395,14 @@ func (dt *DnsTunnel) DnsClient () (*yamux.Session, error) {
 }
 
 func NewDnsTunnel(targetDomain string, encryptionKey string) *DnsTunnel {
-	dt:=DnsTunnel{}
-	dt.sessionsMap=make(map[string]*clientInfo)
-	dt.ReadBuffer=make(map[string]MemBuffer)
-	dt.packetQueue=make(map[string][]string)
-	dt.pollCache=make(map[string]*pollTemporaryData)
+	dt := DnsTunnel{}
+	dt.sessionsMap = make(map[string]*clientInfo)
+	dt.ReadBuffer = make(map[string]MemBuffer)
+	dt.packetQueue = make(map[string][]string)
+	dt.pollCache = make(map[string]*pollTemporaryData)
 	dt.SetDnsConfig(targetDomain, encryptionKey)
 	dt.Sleeptime = 200 * time.Millisecond
-	dt.Yamuxconfig=YamuxConfig()
+	dt.Yamuxconfig = YamuxConfig()
 	return &dt
 }
 
@@ -461,4 +458,3 @@ func ListenForClients(agentstr string, listen string, port int, session *yamux.S
 		}()
 	}
 }
-
