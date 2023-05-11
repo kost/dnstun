@@ -12,7 +12,7 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"log"
-	"math/rand"
+	cryptorand "crypto/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -31,7 +31,7 @@ const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 // It returns the generated random bytes
 func RandBytes(n int) []byte {
 	r := make([]byte, n)
-	_, err := rand.Read(r)
+	_, err := cryptorand.Read(r)
 	if err != nil {
 	}
 
